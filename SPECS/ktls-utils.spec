@@ -3,7 +3,7 @@
 
 Name:           ktls-utils
 Version:        %{baseversion}
-Release:        1%{?dist}
+Release:        0%{?dist}
 Summary:        TLS handshake agent for kernel sockets
 
 %forgemeta
@@ -66,8 +66,8 @@ standard kTLS socket options.
 %systemd_postun_with_restart tlshd.service
 
 %changelog
-* Thu Jul 11 2024 Steve Dickson <steved@redhat.com> 0.11-1
-- Updated to the latest upstream release 0.11 (RHEL-47101)
+* Mon Jun 17 2024 Steve Dickson <steved@redhat.com> 0.11-0
+- Release ktls-utils 0.11 (RHEL-39442)
 
 * Thu Feb 29 2024 Steve Dickson <steved@redhat.com> 0.10-0
 - Initial package
