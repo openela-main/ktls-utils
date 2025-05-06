@@ -3,7 +3,7 @@
 
 Name:           ktls-utils
 Version:        %{baseversion}
-Release:        0%{?dist}
+Release:        1%{?dist}.1
 Summary:        TLS handshake agent for kernel sockets
 
 %forgemeta
@@ -13,6 +13,11 @@ URL:            %{forgeurl}
 
 # FIXME: is this a bug in the tagging scheme or forgesource macro?
 Source0:        %{forgeurl}/releases/download/%{name}-%{baseversion}/%{name}-%{baseversion}.tar.gz
+
+#
+# RHEL9.5-z
+#
+Patch001: ktls-utils-0.11-tlshd-Pass-ETIMEDOUT-from-gnutls-to-kernel.patch
 
 BuildRequires:  bash systemd-rpm-macros
 BuildRequires:  gcc make coreutils
@@ -66,6 +71,9 @@ standard kTLS socket options.
 %systemd_postun_with_restart tlshd.service
 
 %changelog
+* Thu Mar 06 2025 Scott Mayhew <smayhew@redhat.com> - 0.11-1.1
+- tlshd: Pass ETIMEDOUT from gnutls to kernel (RHEL-82301)
+
 * Mon Jun 17 2024 Steve Dickson <steved@redhat.com> 0.11-0
 - Release ktls-utils 0.11 (RHEL-39442)
 

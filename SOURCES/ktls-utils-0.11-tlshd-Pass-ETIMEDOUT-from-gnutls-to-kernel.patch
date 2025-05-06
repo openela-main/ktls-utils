@@ -1,0 +1,48 @@
+From b010190cfed2d9bbd943b3343fdbaeb66efff8e8 Mon Sep 17 00:00:00 2001
+From: Benjamin Coddington <bcodding@redhat.com>
+Date: Tue, 11 Feb 2025 11:52:15 -0500
+Subject: [PATCH] tlshd: Pass ETIMEDOUT from gnutls to kernel
+
+We've had some QE work that's created a condition (some types of connection
+instability) where the handshake attempt has timed out.  When this happens,
+tlshd sends EACESS back to the kernel.  However, the kernel may not be
+expecting this error in the context of some NFS operations, for example:
+writeback.  It can handle ETIMEDOUT, and we would like the kernel to
+perform its normal hard/soft retry routines for this case to re-connect to
+the server.
+
+Add an error switch that clearly denotes the error paths we'd like
+to send back to the kernel.  For SUNRPC, there are other insteresting
+errors that might be included (see call_conenct_status() in
+net/sunrpc/clnt.c), but are ommitted here because we don't have evidence of
+them in the wild
+
+Signed-off-by: Benjamin Coddington <bcodding@redhat.com>
+---
+ src/tlshd/handshake.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/tlshd/handshake.c b/src/tlshd/handshake.c
+index 9bcfc2b..8240b10 100644
+--- a/src/tlshd/handshake.c
++++ b/src/tlshd/handshake.c
+@@ -94,10 +94,14 @@ void tlshd_start_tls_handshake(gnutls_session_t session,
+ 		case GNUTLS_E_CERTIFICATE_VERIFICATION_ERROR:
+ 			tlshd_log_cert_verification_error(session);
+ 			break;
+-		default:
++		case -ETIMEDOUT:
+ 			tlshd_log_gnutls_error(ret);
++			parms->session_status = -ret;
++			break;
++		default:
++			tlshd_log_notice("tlshd_start_tls_handshake unhandled error %d, returning EACCES\n", ret);
++			parms->session_status = EACCES;
+ 		}
+-		parms->session_status = EACCES;
+ 		return;
+ 	}
+ 
+-- 
+2.48.1
+
