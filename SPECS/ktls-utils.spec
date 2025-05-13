@@ -3,7 +3,7 @@
 
 Name:           ktls-utils
 Version:        %{baseversion}
-Release:        1%{?dist}.1
+Release:        3%{?dist}
 Summary:        TLS handshake agent for kernel sockets
 
 %forgemeta
@@ -15,9 +15,10 @@ URL:            %{forgeurl}
 Source0:        %{forgeurl}/releases/download/%{name}-%{baseversion}/%{name}-%{baseversion}.tar.gz
 
 #
-# RHEL9.5-z
+# RHEL-9.6
 #
-Patch001: ktls-utils-0.11-tlshd-Pass-ETIMEDOUT-from-gnutls-to-kernel.patch
+Patch001: ktls-utils-0.11-nvme-default-keyring.patch
+Patch002: ktls-utils-0.11-tlshd-Pass-ETIMEDOUT-from-gnutls-to-kernel.patch
 
 BuildRequires:  bash systemd-rpm-macros
 BuildRequires:  gcc make coreutils
@@ -71,8 +72,14 @@ standard kTLS socket options.
 %systemd_postun_with_restart tlshd.service
 
 %changelog
-* Thu Mar 06 2025 Scott Mayhew <smayhew@redhat.com> - 0.11-1.1
-- tlshd: Pass ETIMEDOUT from gnutls to kernel (RHEL-82301)
+* Mon Mar 03 2025 Scott Mayhew <smayhew@redhat.com> 0.11-3
+- tlshd: Pass ETIMEDOUT from gnutls to kernel
+
+* Wed Feb 12 2025 Scott Mayhew <smayhew@redhat.com> 0.11-2
+- Bump release to satisfy the errata automation
+
+* Tue Feb 04 2025 Steve Dickson <steved@redhat.com> 0.11-1
+- tlshd: link .nvme default keyring into the session (RHEL-71505)
 
 * Mon Jun 17 2024 Steve Dickson <steved@redhat.com> 0.11-0
 - Release ktls-utils 0.11 (RHEL-39442)

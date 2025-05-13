@@ -1,0 +1,43 @@
+From 311d9438b984e3b2a36bd88fb3ab8c87c38701fa Mon Sep 17 00:00:00 2001
+From: Daniel Wagner <wagi@monom.org>
+Date: Thu, 24 Oct 2024 13:15:44 +0200
+Subject: [PATCH] tlshd: always link .nvme default keyring into the session
+
+A common use case for tlshd is to authenticate TLS sessions for the nvme
+subsystem. Currently, the user has to explicitly list a keyring (even
+the defautl one) in the configuration file so that tlshd running
+as daemon (started via systemd) to find any key.
+
+Thus always link the default .nvme keyring into the current session,
+which makes the daemon work out of the box for default configurations.
+
+Signed-off-by: Daniel Wagner <wagi@monom.org>
+---
+ src/tlshd/config.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/tlshd/config.c b/src/tlshd/config.c
+index fae83b3..8becbe0 100644
+--- a/src/tlshd/config.c
++++ b/src/tlshd/config.c
+@@ -91,10 +91,17 @@ bool tlshd_config_init(const gchar *pathname)
+ 					      "keyrings", &length, NULL);
+ 	if (keyrings) {
+ 		for (i = 0; i < length; i++) {
++			if (!strcmp(keyrings[i], ".nvme"))
++				continue;
+ 			tlshd_keyring_link_session(keyrings[i]);
+ 		}
+ 		g_strfreev(keyrings);
+ 	}
++	/*
++	 * Always link the default nvme subsystem keyring into the
++	 * session.
++	 */
++	tlshd_keyring_link_session(".nvme");
+ 
+ 	return true;
+ }
+-- 
+2.47.1
+
