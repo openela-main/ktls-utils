@@ -1,0 +1,88 @@
+diff --git a/src/tlshd/config.c b/src/tlshd/config.c
+index 7b6a533..fae83b3 100644
+--- a/src/tlshd/config.c
++++ b/src/tlshd/config.c
+@@ -186,6 +186,7 @@ bool tlshd_config_get_client_truststore(char **bundle)
+ 		return false;
+ 	} else if (access(pathname, F_OK)) {
+ 		tlshd_log_debug("client x509.truststore pathname \"%s\" is not accessible", pathname);
++		g_free(pathname);
+ 		return false;
+ 	}
+ 
+@@ -222,6 +223,7 @@ bool tlshd_config_get_client_certs(gnutls_pcert_st *certs,
+ 		return false;
+ 	} else if (access(pathname, F_OK)) {
+ 		tlshd_log_debug("client x509.certificate pathname \"%s\" is not accessible", pathname);
++		g_free(pathname);
+ 		return false;
+ 	}
+ 
+@@ -268,7 +270,8 @@ bool tlshd_config_get_client_privkey(gnutls_privkey_t *privkey)
+ 		g_error_free(error);
+ 		return false;
+ 	} else if (access(pathname, F_OK)) {
+-		tlshd_log_debug("client x095.private_key pathname \"%s\" is not accessible", pathname);
++		tlshd_log_debug("client x509.private_key pathname \"%s\" is not accessible", pathname);
++		g_free(pathname);
+ 		return false;
+ 	}
+ 
+@@ -321,6 +324,7 @@ bool tlshd_config_get_server_truststore(char **bundle)
+ 		return false;
+ 	} else if (access(pathname, F_OK)) {
+ 		tlshd_log_debug("server x509.truststore pathname \"%s\" is not accessible", pathname);
++		g_free(pathname);
+ 		return false;
+ 	}
+ 
+@@ -357,6 +361,7 @@ bool tlshd_config_get_server_certs(gnutls_pcert_st *certs,
+ 		return false;
+ 	} else if (access(pathname, F_OK)) {
+ 		tlshd_log_debug("server x509.certificate pathname \"%s\" is not accessible", pathname);
++		g_free(pathname);
+ 		return false;
+ 	}
+ 
+@@ -378,6 +383,7 @@ bool tlshd_config_get_server_certs(gnutls_pcert_st *certs,
+ 
+ 	tlshd_log_debug("Retrieved %u x.509 server certificate(s) from %s",
+ 			*certs_len, pathname);
++	g_free(pathname);
+ 	return true;
+ }
+ 
+@@ -403,6 +409,7 @@ bool tlshd_config_get_server_privkey(gnutls_privkey_t *privkey)
+ 		return false;
+ 	} else if (access(pathname, F_OK)) {
+ 		tlshd_log_debug("server x509.privkey pathname \"%s\" is not accessible", pathname);
++		g_free(pathname);
+ 		return false;
+ 	}
+ 
+diff --git a/src/tlshd/handshake.c b/src/tlshd/handshake.c
+index 50c2f62..768dac2 100644
+--- a/src/tlshd/handshake.c
++++ b/src/tlshd/handshake.c
+@@ -59,7 +59,7 @@ static void tlshd_save_nagle(gnutls_session_t session, int *saved)
+ 	int ret;
+ 
+ 
+-	len = sizeof(saved);
++	len = sizeof(*saved);
+ 	ret = getsockopt(gnutls_transport_get_int(session),
+ 			 IPPROTO_TCP, TCP_NODELAY, saved, &len);
+ 	if (ret < 0) {
+diff --git a/src/tlshd/netlink.c b/src/tlshd/netlink.c
+index 2e206f6..439904c 100644
+--- a/src/tlshd/netlink.c
++++ b/src/tlshd/netlink.c
+@@ -269,7 +269,7 @@ static int tlshd_genl_valid_handler(struct nl_msg *msg, void *arg)
+ 	tlshd_parse_certificate(parms, tb[HANDSHAKE_A_ACCEPT_CERTIFICATE]);
+ 
+ 	if (peername)
+-		strcpy(tlshd_peername, peername);
++		strncpy(tlshd_peername, peername, sizeof(tlshd_peername) - 1);
+ 	else {
+ 		err = getnameinfo(parms->peeraddr, parms->peeraddr_len,
+ 				  tlshd_peername, sizeof(tlshd_peername),
