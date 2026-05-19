@@ -1,0 +1,57 @@
+From 9e79a86b85748ba4888da49652986b09beac2459 Mon Sep 17 00:00:00 2001
+From: Chuck Lever <chuck.lever@oracle.com>
+Date: Thu, 5 Feb 2026 14:40:28 -0500
+Subject: [PATCH] tlshd: Fix session leak on error paths in x509 server
+ handshake
+
+Conflicts: src/tlshd/server.c - context difference in
+	tlshd_tls13_server_x509_handshake() because RHEL10 doesn't have
+	f11519a ("tlshd: Match ingress certificates with defined TLS session
+	tags")
+
+After gnutls_init() succeeds, the error paths for gnutls_credentials_set()
+and tlshd_gnutls_priority_set() failures jump to out_free_certs without
+calling gnutls_deinit(session), leaking the session object.
+
+Introduce an out_deinit_session label so all post-init error paths
+properly release the session before cleaning up certificates and
+credentials.
+
+Signed-off-by: Chuck Lever <chuck.lever@oracle.com>
+---
+ src/tlshd/server.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/tlshd/server.c b/src/tlshd/server.c
+index 4850210..3bfcca3 100644
+--- a/src/tlshd/server.c
++++ b/src/tlshd/server.c
+@@ -424,7 +424,7 @@ static void tlshd_tls13_server_x509_handshake(struct tlshd_handshake_parms *parm
+ 	ret = gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, xcred);
+ 	if (ret != GNUTLS_E_SUCCESS) {
+ 		tlshd_log_gnutls_error(ret);
+-		goto out_free_certs;
++		goto out_deinit_session;
+ 	}
+ 	gnutls_certificate_set_verify_function(xcred,
+ 					       tlshd_tls13_server_x509_verify_function);
+@@ -433,7 +433,7 @@ static void tlshd_tls13_server_x509_handshake(struct tlshd_handshake_parms *parm
+ 	ret = tlshd_gnutls_priority_set(session, parms, 0);
+ 	if (ret) {
+ 		tlshd_log_gnutls_error(ret);
+-		goto out_free_certs;
++		goto out_deinit_session;
+ 	}
+ 
+ 	tlshd_start_tls_handshake(session, parms);
+@@ -373,6 +373,7 @@ static void tlshd_tls13_server_x509_hand
+ 		}
+ 	}
+ 
++out_deinit_session:
+ 	gnutls_deinit(session);
+ 
+ out_free_certs:
+-- 
+2.52.0
+

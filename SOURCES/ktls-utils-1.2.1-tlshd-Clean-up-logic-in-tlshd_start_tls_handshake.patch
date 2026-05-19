@@ -1,0 +1,44 @@
+From b52ca7c0a9c167340950a10d8dc56be1b95f5c40 Mon Sep 17 00:00:00 2001
+From: Chuck Lever <chuck.lever@oracle.com>
+Date: Tue, 23 Sep 2025 19:30:16 -0400
+Subject: [PATCH] tlshd: Clean up logic in tlshd_start_tls_handshake()
+
+gnutls_handshake() is supposed to return only a GNUTLS_E value, and
+the session_status field is supposed to contain only a positive
+errno.
+
+GNUTLS_E_PREMATURE_TERMINATION is -110. It turns out that on x86,
+-ETIMEDOUT is also -110. Make sure the correct symbolic constants
+and auditing functions are utilized.
+
+Fixes: b010190cfed2 ("tlshd: Pass ETIMEDOUT from gnutls to kernel")
+Reviewed-by: Benjamin Coddington <bcodding@redhat.com>
+Signed-off-by: Chuck Lever <chuck.lever@oracle.com>
+---
+ src/tlshd/handshake.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/tlshd/handshake.c b/src/tlshd/handshake.c
+index 5a28939..f688932 100644
+--- a/src/tlshd/handshake.c
++++ b/src/tlshd/handshake.c
+@@ -97,12 +97,12 @@ void tlshd_start_tls_handshake(gnutls_session_t session,
+ 		case GNUTLS_E_CERTIFICATE_VERIFICATION_ERROR:
+ 			tlshd_log_cert_verification_error(session);
+ 			break;
+-		case -ETIMEDOUT:
+-			tlshd_log_gnutls_error(ret);
+-			parms->session_status = -ret;
++		case GNUTLS_E_PREMATURE_TERMINATION:
++			tlshd_log_error("Handshake timeout, retrying");
++			parms->session_status = ETIMEDOUT;
+ 			break;
+ 		default:
+-			tlshd_log_notice("tlshd_start_tls_handshake unhandled error %d, returning EACCES\n", ret);
++			tlshd_log_gnutls_error(ret);
+ 		}
+ 		return;
+ 	}
+-- 
+2.52.0
+

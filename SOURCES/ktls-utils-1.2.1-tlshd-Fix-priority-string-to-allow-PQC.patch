@@ -1,0 +1,39 @@
+From 9253f9df5ff986bddba38b8146ba6e650e7ebdd9 Mon Sep 17 00:00:00 2001
+From: Scott Mayhew <smayhew@redhat.com>
+Date: Wed, 10 Sep 2025 17:02:16 -0400
+Subject: [PATCH 2/4] tlshd: Fix priority string to allow PQC
+
+Specifying either of the SECURE256 or SECURE128 keywords in the priority
+string results in the ML-DSA algorithms being disabled because the
+post-quantum algorithms do not map nicely to the security
+classifications based on "bits of security" used for traditional
+algorithms [1].
+
+Use @SYSTEM instead, which will allow PQC on systems with newer versions
+of GnuTLS.  It will also allow users to disable PQC via a policy module
+(on systems with the crypto-policies package).
+
+[1] https://csrc.nist.gov/CSRC/media/Projects/Post-Quantum-Cryptography/documents/call-for-proposals-final-dec-2016.pdf#page=15
+
+Link: https://github.com/oracle/ktls-utils/issues/113
+Signed-off-by: Scott Mayhew <smayhew@redhat.com>
+---
+ src/tlshd/ktls.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/tlshd/ktls.c b/src/tlshd/ktls.c
+index 883256a..50381bf 100644
+--- a/src/tlshd/ktls.c
++++ b/src/tlshd/ktls.c
+@@ -357,7 +357,7 @@ static int tlshd_gnutls_priority_init_list(const unsigned int *ciphers,
+ 	const char *errpos;
+ 	int ret, i;
+ 
+-	pstring = strdup("SECURE256:+SECURE128:-COMP-ALL");
++	pstring = strdup("@SYSTEM:-COMP-ALL");
+ 	if (!pstring)
+ 		return -ENOMEM;
+ 
+-- 
+2.51.0
+

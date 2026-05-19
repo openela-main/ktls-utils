@@ -1,0 +1,445 @@
+From 6cea3a0e8a10aa893f42576059dcf5c74f092283 Mon Sep 17 00:00:00 2001
+From: Scott Mayhew <smayhew@redhat.com>
+Date: Wed, 10 Sep 2025 16:17:43 -0400
+Subject: [PATCH 1/4] tlshd: deduplicate client and server config functions
+
+The client and server variants of tlshd_config_get_* are identical
+except for
+1) the stanza they're looking at in the config file, and
+2) whether the word "client" or "server" gets written in a log message
+
+Add new parameter 'peer_type' to each of these functions so we can use
+the same function for both the client and server code.
+
+Signed-off-by: Scott Mayhew <smayhew@redhat.com>
+---
+ src/tlshd/client.c |   9 +-
+ src/tlshd/config.c | 213 +++++++++------------------------------------
+ src/tlshd/server.c |  11 +--
+ src/tlshd/tlshd.h  |  20 ++---
+ 4 files changed, 62 insertions(+), 191 deletions(-)
+
+diff --git a/src/tlshd/client.c b/src/tlshd/client.c
+index 8acb0aa..c07ae29 100644
+--- a/src/tlshd/client.c
++++ b/src/tlshd/client.c
+@@ -48,7 +48,7 @@ static int tlshd_client_get_truststore(gnutls_certificate_credentials_t cred)
+ 	char *pathname;
+ 	int ret;
+ 
+-	if (tlshd_config_get_client_truststore(&pathname)) {
++	if (tlshd_config_get_truststore(PEER_TYPE_CLIENT, &pathname)) {
+ 		ret = gnutls_certificate_set_x509_trust_file(cred, pathname,
+ 							     GNUTLS_X509_FMT_PEM);
+ 		free(pathname);
+@@ -60,7 +60,7 @@ static int tlshd_client_get_truststore(gnutls_certificate_credentials_t cred)
+ 	}
+ 	tlshd_log_debug("System trust: Loaded %d certificate(s).", ret);
+ 
+-	if (tlshd_config_get_client_crl(&pathname)) {
++	if (tlshd_config_get_crl(PEER_TYPE_CLIENT, &pathname)) {
+ 		ret = gnutls_certificate_set_x509_crl_file(cred, pathname,
+ 							   GNUTLS_X509_FMT_PEM);
+ 		free(pathname);
+@@ -143,7 +143,8 @@ static bool tlshd_x509_client_get_certs(struct tlshd_handshake_parms *parms)
+ 	if (parms->x509_cert != TLS_NO_CERT)
+ 		return tlshd_keyring_get_certs(parms->x509_cert, tlshd_certs,
+ 					       &tlshd_certs_len);
+-	return tlshd_config_get_client_certs(tlshd_certs, &tlshd_certs_len);
++	return tlshd_config_get_certs(PEER_TYPE_CLIENT, tlshd_certs,
++				      &tlshd_certs_len);
+ }
+ 
+ static void tlshd_x509_client_put_certs(void)
+@@ -159,7 +160,7 @@ static bool tlshd_x509_client_get_privkey(struct tlshd_handshake_parms *parms)
+ 	if (parms->x509_privkey != TLS_NO_PRIVKEY)
+ 		return tlshd_keyring_get_privkey(parms->x509_privkey,
+ 						 &tlshd_privkey);
+-	return tlshd_config_get_client_privkey(&tlshd_privkey);
++	return tlshd_config_get_privkey(PEER_TYPE_CLIENT, &tlshd_privkey);
+ }
+ 
+ static void tlshd_x509_client_put_privkey(void)
+diff --git a/src/tlshd/config.c b/src/tlshd/config.c
+index 029dbcc..ff1f2a5 100644
+--- a/src/tlshd/config.c
++++ b/src/tlshd/config.c
+@@ -187,18 +187,22 @@ out:
+ }
+ 
+ /**
+- * tlshd_config_get_client_truststore - Get truststore for ClientHello from .conf
++ * tlshd_config_get_truststore - Get truststore for {Client,Server}Hello from .conf
++ * @peer_type: IN: peer type
+  * @bundle: OUT: pathname to truststore
+  *
+  * Return values:
+  *   %false: pathname not retrieved
+  *   %true: pathname retrieved successfully; caller must free @bundle using free(3)
+  */
+-bool tlshd_config_get_client_truststore(char **bundle)
++bool tlshd_config_get_truststore(int peer_type, char **bundle)
+ {
+ 	gchar *pathname;
+ 
+-	pathname = g_key_file_get_string(tlshd_configuration, "authenticate.client",
++	pathname = g_key_file_get_string(tlshd_configuration,
++					 peer_type == PEER_TYPE_CLIENT ?
++					 "authenticate.client" :
++					 "authenticate.server",
+ 					 "x509.truststore", NULL);
+ 	if (!pathname)
+ 		return false;
+@@ -213,23 +217,29 @@ bool tlshd_config_get_client_truststore(char **bundle)
+ 	if (!*bundle)
+ 		return false;
+ 
+-	tlshd_log_debug("Client x.509 truststore is %s", *bundle);
++	tlshd_log_debug("%s x.509 truststore is %s",
++		        peer_type == PEER_TYPE_CLIENT ? "Client" : "Server",
++			*bundle);
+ 	return true;
+ }
+ 
+ /**
+- * tlshd_config_get_client_crl - Get CRL for ClientHello from .conf
++ * tlshd_config_get_crl - Get CRL for {Client,Server}Hello from .conf
++ * @peer_type: IN: peer type
+  * @result: OUT: pathname to CRL
+  *
+  * Return values:
+  *   %false: pathname not retrieved
+  *   %true: pathname retrieved successfully; caller must free @result using free(3)
+  */
+-bool tlshd_config_get_client_crl(char **result)
++bool tlshd_config_get_crl(int peer_type, char **result)
+ {
+ 	gchar *pathname;
+ 
+-	pathname = g_key_file_get_string(tlshd_configuration, "authenticate.client",
++	pathname = g_key_file_get_string(tlshd_configuration,
++					 peer_type == PEER_TYPE_CLIENT ?
++					 "authenticate.client" :
++					 "authenticate.server",
+ 					 "x509.crl", NULL);
+ 	if (!pathname)
+ 		return false;
+@@ -244,12 +254,15 @@ bool tlshd_config_get_client_crl(char **result)
+ 	if (!*result)
+ 		return false;
+ 
+-	tlshd_log_debug("Client x.509 crl is %s", *result);
++	tlshd_log_debug("%s x.509 crl is %s",
++			peer_type == PEER_TYPE_CLIENT ? "Client" : "Server",
++			*result);
+ 	return true;
+ }
+ 
+ /**
+- * tlshd_config_get_client_certs - Get certs for ClientHello from .conf
++ * tlshd_config_get_certs - Get certs for {Client,Server} Hello from .conf
++ * @peer_type: IN: peer type
+  * @certs: OUT: in-memory certificates
+  * @certs_len: IN: maximum number of certs to get, OUT: number of certs found
+  *
+@@ -257,15 +270,18 @@ bool tlshd_config_get_client_crl(char **result)
+  *   %true: certificate retrieved successfully
+  *   %false: certificate not retrieved
+  */
+-bool tlshd_config_get_client_certs(gnutls_pcert_st *certs,
+-				   unsigned int *certs_len)
++bool tlshd_config_get_certs(int peer_type, gnutls_pcert_st *certs,
++			    unsigned int *certs_len)
+ {
+ 	gnutls_datum_t data;
+ 	gchar *pathname;
+ 	int ret;
+ 
+-	pathname = g_key_file_get_string(tlshd_configuration, "authenticate.client",
+-					"x509.certificate", NULL);
++	pathname = g_key_file_get_string(tlshd_configuration,
++					 peer_type == PEER_TYPE_CLIENT ?
++					 "authenticate.client" :
++					 "authenticate.server",
++					 "x509.certificate", NULL);
+ 	if (!pathname)
+ 		return false;
+ 
+@@ -285,181 +301,34 @@ bool tlshd_config_get_client_certs(gnutls_pcert_st *certs,
+ 		return false;
+ 	}
+ 
+-	tlshd_log_debug("Retrieved %u x.509 client certificate(s) from %s",
+-			*certs_len, pathname);
++	tlshd_log_debug("Retrieved %u x.509 %s certificate(s) from %s",
++			*certs_len,
++			peer_type == PEER_TYPE_CLIENT ? "client" : "server",
++			pathname);
+ 	g_free(pathname);
+ 	return true;
+ }
+ 
+ /**
+- * tlshd_config_get_client_privkey - Get private key for ClientHello from .conf
++ * tlshd_config_get_privkey - Get private key for {Client,Server}Hello from .conf
++ * @peer_type: IN: peer type
+  * @privkey: OUT: in-memory private key
+  *
+  * Return values:
+  *   %true: private key retrieved successfully
+  *   %false: private key not retrieved
+  */
+-bool tlshd_config_get_client_privkey(gnutls_privkey_t *privkey)
++bool tlshd_config_get_privkey(int peer_type, gnutls_privkey_t *privkey)
+ {
+ 	gnutls_datum_t data;
+ 	gchar *pathname;
+ 	int ret;
+ 
+-	pathname = g_key_file_get_string(tlshd_configuration, "authenticate.client",
+-					"x509.private_key", NULL);
+-	if (!pathname)
+-		return false;
+-
+-	if (!tlshd_config_read_datum(pathname, &data, TLSHD_OWNER,
+-				     TLSHD_PRIVKEY_MODE)) {
+-		g_free(pathname);
+-		return false;
+-	}
+-
+-	ret = gnutls_privkey_init(privkey);
+-	if (ret != GNUTLS_E_SUCCESS) {
+-		tlshd_log_gnutls_error(ret);
+-		free(data.data);
+-		g_free(pathname);
+-		return false;
+-	}
+-
+-	/* Config file supports only PEM-encoded keys */
+-	ret = gnutls_privkey_import_x509_raw(*privkey, &data,
+-					     GNUTLS_X509_FMT_PEM, NULL, 0);
+-	free(data.data);
+-	if (ret != GNUTLS_E_SUCCESS) {
+-		tlshd_log_gnutls_error(ret);
+-		g_free(pathname);
+-		return false;
+-	}
+-
+-	tlshd_log_debug("Retrieved private key from %s", pathname);
+-	g_free(pathname);
+-	return true;
+-}
+-
+-/**
+- * tlshd_config_get_server_truststore - Get truststore for ServerHello from .conf
+- * @bundle: OUT: pathname to truststore
+- *
+- * Return values:
+- *   %false: pathname not retrieved
+- *   %true: pathname retrieved successfully; caller must free @bundle using free(3)
+- */
+-bool tlshd_config_get_server_truststore(char **bundle)
+-{
+-	gchar *pathname;
+-
+-	pathname = g_key_file_get_string(tlshd_configuration, "authenticate.server",
+-					 "x509.truststore", NULL);
+-	if (!pathname)
+-		return false;
+-	if (access(pathname, F_OK)) {
+-		tlshd_log_debug("tlshd cannot access \"%s\"", pathname);
+-		g_free(pathname);
+-		return false;
+-	}
+-
+-	*bundle = strdup(pathname);
+-	g_free(pathname);
+-	if (!*bundle)
+-		return false;
+-
+-	tlshd_log_debug("Server x.509 truststore is %s", *bundle);
+-	return true;
+-}
+-
+-/**
+- * tlshd_config_get_server_crl - Get CRL for ServerHello from .conf
+- * @result: OUT: pathname to CRL
+- *
+- * Return values:
+- *   %false: pathname not retrieved
+- *   %true: pathname retrieved successfully; caller must free @result using free(3)
+- */
+-bool tlshd_config_get_server_crl(char **result)
+-{
+-	gchar *pathname;
+-
+-	pathname = g_key_file_get_string(tlshd_configuration, "authenticate.server",
+-					 "x509.crl", NULL);
+-	if (!pathname)
+-		return false;
+-	if (access(pathname, F_OK)) {
+-		tlshd_log_debug("tlshd cannot access \"%s\"", pathname);
+-		g_free(pathname);
+-		return false;
+-	}
+-
+-	*result = strdup(pathname);
+-	g_free(pathname);
+-	if (!*result)
+-		return false;
+-
+-	tlshd_log_debug("Server x.509 crl is %s", *result);
+-	return true;
+-}
+-
+-/**
+- * tlshd_config_get_server_certs - Get certs for ServerHello from .conf
+- * @certs: OUT: in-memory certificates
+- * @certs_len: IN: maximum number of certs to get, OUT: number of certs found
+- *
+- * Return values:
+- *   %true: certificate retrieved successfully
+- *   %false: certificate not retrieved
+- */
+-bool tlshd_config_get_server_certs(gnutls_pcert_st *certs,
+-				   unsigned int *certs_len)
+-{
+-	gnutls_datum_t data;
+-	gchar *pathname;
+-	int ret;
+-
+-	pathname = g_key_file_get_string(tlshd_configuration, "authenticate.server",
+-					"x509.certificate", NULL);
+-	if (!pathname)
+-		return false;
+-
+-	if (!tlshd_config_read_datum(pathname, &data, TLSHD_OWNER,
+-				     TLSHD_CERT_MODE)) {
+-		g_free(pathname);
+-		return false;
+-	}
+-
+-	/* Config file supports only PEM-encoded certificates */
+-	ret = gnutls_pcert_list_import_x509_raw(certs, certs_len, &data,
+-						GNUTLS_X509_FMT_PEM, 0);
+-	free(data.data);
+-	if (ret != GNUTLS_E_SUCCESS) {
+-		tlshd_log_gnutls_error(ret);
+-		g_free(pathname);
+-		return false;
+-	}
+-
+-	tlshd_log_debug("Retrieved %u x.509 server certificate(s) from %s",
+-			*certs_len, pathname);
+-	g_free(pathname);
+-	return true;
+-}
+-
+-/**
+- * tlshd_config_get_server_privkey - Get private key for ServerHello from .conf
+- * @privkey: OUT: in-memory private key
+- *
+- * Return values:
+- *   %true: private key retrieved successfully
+- *   %false: private key not retrieved
+- */
+-bool tlshd_config_get_server_privkey(gnutls_privkey_t *privkey)
+-{
+-	gnutls_datum_t data;
+-	gchar *pathname;
+-	int ret;
+-
+-	pathname = g_key_file_get_string(tlshd_configuration, "authenticate.server",
+-					"x509.private_key", NULL);
++	pathname = g_key_file_get_string(tlshd_configuration,
++					 peer_type == PEER_TYPE_CLIENT ?
++					 "authenticate.client" :
++					 "authenticate.server",
++					 "x509.private_key", NULL);
+ 	if (!pathname)
+ 		return false;
+ 
+diff --git a/src/tlshd/server.c b/src/tlshd/server.c
+index 44a91c4..efea387 100644
+--- a/src/tlshd/server.c
++++ b/src/tlshd/server.c
+@@ -52,8 +52,8 @@ static bool tlshd_x509_server_get_certs(struct tlshd_handshake_parms *parms)
+ 		return tlshd_keyring_get_certs(parms->x509_cert,
+ 					       tlshd_server_certs,
+ 					       &tlshd_server_certs_len);
+-	return tlshd_config_get_server_certs(tlshd_server_certs,
+-					     &tlshd_server_certs_len);
++	return tlshd_config_get_certs(PEER_TYPE_SERVER, tlshd_server_certs,
++				      &tlshd_server_certs_len);
+ }
+ 
+ static void tlshd_x509_server_put_certs(void)
+@@ -69,7 +69,8 @@ static bool tlshd_x509_server_get_privkey(struct tlshd_handshake_parms *parms)
+ 	if (parms->x509_privkey != TLS_NO_PRIVKEY)
+ 		return tlshd_keyring_get_privkey(parms->x509_privkey,
+ 						 &tlshd_server_privkey);
+-	return tlshd_config_get_server_privkey(&tlshd_server_privkey);
++	return tlshd_config_get_privkey(PEER_TYPE_SERVER,
++					&tlshd_server_privkey);
+ }
+ 
+ static void tlshd_x509_server_put_privkey(void)
+@@ -140,7 +141,7 @@ static int tlshd_server_get_truststore(gnutls_certificate_credentials_t cred)
+ 	char *pathname;
+ 	int ret;
+ 
+-	if (tlshd_config_get_server_truststore(&pathname)) {
++	if (tlshd_config_get_truststore(PEER_TYPE_SERVER, &pathname)) {
+ 		ret = gnutls_certificate_set_x509_trust_file(cred, pathname,
+ 							     GNUTLS_X509_FMT_PEM);
+ 		free(pathname);
+@@ -150,7 +151,7 @@ static int tlshd_server_get_truststore(gnutls_certificate_credentials_t cred)
+ 		return ret;
+ 	tlshd_log_debug("System trust: Loaded %d certificate(s).", ret);
+ 
+-	if (tlshd_config_get_server_crl(&pathname)) {
++	if (tlshd_config_get_crl(PEER_TYPE_SERVER, &pathname)) {
+ 		ret = gnutls_certificate_set_x509_crl_file(cred, pathname,
+ 							   GNUTLS_X509_FMT_PEM);
+ 		free(pathname);
+diff --git a/src/tlshd/tlshd.h b/src/tlshd/tlshd.h
+index 2857804..6ba45ac 100644
+--- a/src/tlshd/tlshd.h
++++ b/src/tlshd/tlshd.h
+@@ -45,6 +45,11 @@ struct tlshd_handshake_parms {
+ 	unsigned int	session_status;
+ };
+ 
++enum peer_type {
++	PEER_TYPE_CLIENT,
++	PEER_TYPE_SERVER,
++};
++
+ /* client.c */
+ extern void tlshd_tls13_clienthello_handshake(struct tlshd_handshake_parms *parms);
+ extern void tlshd_quic_clienthello_handshake(struct tlshd_handshake_parms *parms);
+@@ -52,16 +57,11 @@ extern void tlshd_quic_clienthello_handshake(struct tlshd_handshake_parms *parms
+ /* config.c */
+ bool tlshd_config_init(const gchar *pathname);
+ void tlshd_config_shutdown(void);
+-bool tlshd_config_get_client_truststore(char **bundle);
+-bool tlshd_config_get_client_crl(char **result);
+-bool tlshd_config_get_client_certs(gnutls_pcert_st *certs,
+-				   unsigned int *certs_len);
+-bool tlshd_config_get_client_privkey(gnutls_privkey_t *privkey);
+-bool tlshd_config_get_server_truststore(char **bundle);
+-bool tlshd_config_get_server_crl(char **result);
+-bool tlshd_config_get_server_certs(gnutls_pcert_st *certs,
+-				   unsigned int *certs_len);
+-bool tlshd_config_get_server_privkey(gnutls_privkey_t *privkey);
++bool tlshd_config_get_truststore(int peer_type, char **bundle);
++bool tlshd_config_get_crl(int peer_type, char **result);
++bool tlshd_config_get_certs(int peer_type, gnutls_pcert_st *certs,
++			    unsigned int *certs_len);
++bool tlshd_config_get_privkey(int peer_type, gnutls_privkey_t *privkey);
+ 
+ /* handshake.c */
+ extern void tlshd_start_tls_handshake(gnutls_session_t session,
+-- 
+2.51.0
+
